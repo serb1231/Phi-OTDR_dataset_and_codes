@@ -1,6 +1,9 @@
 #coding = UTF-8
 import sys
+import torch
 
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print('Device:', DEVICE)
 
 class Logger(object):
     # Duplicates everything printed to stdout into a log file as well.
@@ -165,8 +168,8 @@ def main(args):
 
     models = {"CNN": CNN}
     model = models[args.model]()
-    if torch.cuda.is_available():
-        model = model.cuda()
+    model = model.to(DEVICE)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
     criterion = nn.CrossEntropyLoss()
     train_loss_list = []
