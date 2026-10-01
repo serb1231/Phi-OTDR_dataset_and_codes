@@ -3,41 +3,49 @@ import os
 import scipy.io as scio
 from torch.utils.data import Dataset
 
-def normalize(data):                           # 归一化到0-255
-    rawdata_max = max(map(max, data))
-    rawdata_min = min(map(min, data))
-    for i in range(data.shape[0]):
-        for j in range(data.shape[1]):
-            data[i][j] = round(((255 - 0) * (data[i][j] - rawdata_min) / (rawdata_max - rawdata_min)) + 0)
-    return data
+
+def normalize(data):                           # Min-max normalise to the range 0-255
+    # Scales the whole (10000, 12) sample so its minimum becomes 0 and its maximum 255,
+    # then rounds to integers (like a greyscale image).
+    rawdata_max = data.max()
+    rawdata_min = data.min()
+    if rawdata_max == rawdata_min:             # flat signal: avoid division by zero
+        return np.zeros_like(data)
+    return np.round(255 * (data - rawdata_min) / (rawdata_max - rawdata_min)).astype(data.dtype)
+
 
 class MyDataset(Dataset):
+    # PyTorch dataset for the CNN. Each item is one .mat sample (10000 time points x
+    # 12 spatial points) with its class label (0-5).
 
     def __init__(self, root_dir, names_file, transform=None):
-        self.root_dir = root_dir
-        self.names_file = names_file
+        self.root_dir = root_dir          # folder containing the class sub-folders
+        self.names_file = names_file      # label.txt: "<relative path> <label>" per line
         self.transform = transform
-        self.size = 0
         self.names_list = []
         if not os.path.isfile(self.names_file):
-            print(self.names_file + 'does not exist!')
-        file = open(self.names_file)
-        for f in file:
-            self.names_list.append(f)
-            self.size += 1
+            raise FileNotFoundError(self.names_file + ' does not exist!')
+        with open(self.names_file) as file:
+            for line in file:
+                parts = line.split()
+                if len(parts) < 2:        # skip empty lines
+                    continue
+                data_path = self.root_dir + parts[0]
+                if not os.path.isfile(data_path) or os.path.getsize(data_path) == 0:
+                    print('Warning: skipping missing or empty file ' + data_path)
+                    continue
+                self.names_list.append((parts[0], int(parts[1])))
+        self.size = len(self.names_list)
 
     def __len__(self):
         return self.size
 
     def __getitem__(self, idx):
-        data_path = self.root_dir + self.names_list[idx].split(' ')[0]
-        if not os.path.isfile(data_path):
-            print(data_path + 'does not exist!')
-            return None
-        rawdata = scio.loadmat(data_path)['data']  # 10000,12 uint16
-        rawdata = rawdata.astype(int)       # int32
+        rel_path, label = self.names_list[idx]
+        data_path = self.root_dir + rel_path
+        rawdata = scio.loadmat(data_path)['data']  # (10000, 12) uint16
+        rawdata = rawdata.astype(int)       # int64 so the arithmetic below cannot overflow
         data = normalize(rawdata)
-        label = int(self.names_list[idx].split(' ')[1])
         sample = {'data': data, 'label': label}
         if self.transform:
             sample = self.transform(sample)
